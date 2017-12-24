@@ -1,7 +1,8 @@
 use std::io::Read;
 use std::str::FromStr;
 use std::fs::File;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 fn get_input(filename: &str) -> Result<String, std::io::Error> {
     let mut out = String::new();
@@ -49,8 +50,8 @@ where P: Fn(&Vec<u32>, &mut Vec<u32>) {
     checksum.iter().sum() 
 }
 
-fn spiral_memory<P>(input: &str, value_fn: P) -> i32 
-where P: Fn(u32, &HashMap<(i32, i32), u32>) -> u32 {
+fn spiral_memory<P>(input: &str, value_fn: P) -> HashMap<u32, (i32, i32)> 
+where P: Fn(u32, &HashMap<(i32, i32), u32>, i32, i32) -> u32 {
     // 1 1 2 2 3 3 4 4     
     // +x -y -x +y 
     
@@ -66,17 +67,21 @@ where P: Fn(u32, &HashMap<(i32, i32), u32>) -> u32 {
 
     let mut mut_it = mutators.iter().cycle();
     let mut idx = 1;
-    let mut value = 1;
+    let mut value = 0;
     while value <= max_value {
-
         let mutator = mut_it.next().unwrap();
+
         for _ in 1..incr+1 {
+            value = value_fn(value, &coord_map, x, y);
+            
             value_map.insert(value, (x, y));
             coord_map.insert((x, y), value);
             x += mutator.0;
             y += mutator.1;
 
-            value = value_fn(value, &coord_map);
+            if value > max_value {
+                break;
+            }
         }
 
         if idx % 2 == 0 {
@@ -85,10 +90,61 @@ where P: Fn(u32, &HashMap<(i32, i32), u32>) -> u32 {
         idx += 1;
     }
 
-    let p1 = value_map.get(&1).unwrap();
-    let p2 = value_map.get(&max_value).unwrap();
+    value_map
+}
 
-    ((p1.0 - p2.0).abs() + (p1.1 - p2.1).abs())
+fn manhatten_distance(map: &HashMap<u32, (i32, i32)>, p1: u32, p2: u32) -> i32 {
+    let _p1 = map.get(&p1).unwrap();
+    let _p2 = map.get(&p2).unwrap();
+
+    ((_p1.0 - _p2.0).abs() + (_p1.1 - _p2.1).abs())
+}
+
+fn high_entropy<P>(input: &str, mutator_fn: P) -> u32 
+where P: Fn(&str) -> String 
+{
+    let mut set = HashSet::new();
+    let mut counter = 0;
+
+    for line in input.lines() {
+        set.clear();    
+
+        for word in line.split_whitespace() {
+            let mutated_word = mutator_fn(word);
+            if set.contains(&mutated_word) {
+                break;
+            }
+            set.insert(mutated_word);
+        }
+
+        if line.split_whitespace().count() == set.len() {
+            counter += 1;
+        }
+    }
+
+    counter
+}
+
+fn twisty<P>(input: &str, mutator_fn: P) -> u32 
+where P: Fn(i32) -> i32 
+{
+    let mut map: HashMap<i32, i32> = HashMap::new();
+
+    for (idx, line) in input.lines().enumerate() {
+        let value = i32::from_str(line).unwrap();
+        map.insert(idx as i32, value);
+    }
+
+    let mut ip: i32 = 0;
+    let mut counter = 0;
+    while map.contains_key(&ip) {
+        if let Some(instruction) = map.get_mut(&ip) {
+            ip += *instruction;
+            *instruction = mutator_fn(*instruction);
+        }
+        counter += 1;
+    }
+    counter 
 }
 
 fn main() {
@@ -126,26 +182,62 @@ fn main() {
     }));
 
     input = get_input("data/day3.input").expect("Failed to read data/day3.input");;
-    println!("Day 3 Part One = {}", spiral_memory(&input, |v, _| v + 1));
 
-    // println!("Day 3 Part Two = {}", spiral_memory(&input, |v, coord_map| {
-    //         let directions: [(i32, i32); 9] = [
-    //             (0, 0), // self
-    //             (0, -1), // above
-    //             (1, -1), // upper right
-    //             (1, 0),  // right
-    //             (1, 1),  // lower right
-    //             (0, 1),  // below
-    //             (-1, 1),  // lower left
-    //             (-1, 0),  // left
-    //             (-1, -1),  // upper left
-    //         ];
+    {
+        let mem = spiral_memory(&input, |v, _, _, _| v + 1);
+        let value = u32::from_str(&input).unwrap();
+        println!("Day 3 Part One = {}", manhatten_distance(&mem, 1, value)); 
+    }
 
-    //         let dirs: Vec<&u32> = directions.iter().map(|&d| {
-    //             coord_map.get(&(x + d.0, y + d.1)).unwrap_or(&0)
-    //         }).collect();
+    {
+        let mem = spiral_memory(&input, |v, coord_map, x, y| {
+            if v == 0 {
+                1
+            } else {
+                let directions: [(i32, i32); 9] = [
+                    (0, 0), // self
+                    (0, -1), // above
+                    (1, -1), // upper right
+                    (1, 0),  // right
+                    (1, 1),  // lower right
+                    (0, 1),  // below
+                    (-1, 1),  // lower left
+                    (-1, 0),  // left
+                    (-1, -1),  // upper left
+                ];
 
-    //         dirs.iter().sum()
-    // }));
+                let dirs: Vec<u32> = directions.iter().map(|&d| {
+                    coord_map.get(&(x + d.0, y + d.1)).unwrap_or(&0).clone()
+                }).collect();
 
+                dirs.iter().sum()
+            }
+        });
+
+        let mut gt: Vec<&u32> = mem.keys().collect();
+        gt.sort();
+        println!("Day 3 Part Two = {:?}", gt.iter().last().unwrap());
+    }
+
+    {
+        input = get_input("data/day4.input").expect("Failed to read data/day4.input");
+        println!("Day 4 Part One = {:?}", high_entropy(&input, |w| String::from(w)));
+        println!("Day 4 Part Two = {:?}", high_entropy(&input, |w| {
+            let mut chars: Vec<_> = w.chars().collect();
+            chars.sort_by(|a, b| b.cmp(a));
+            String::from_iter(chars)
+        }));
+    }
+
+    {
+        input = get_input("data/day5.input").expect("Failed to read data/day5.input");
+        println!("Day 5 Part One = {:?}", twisty(&input, |v| v + 1));
+        println!("Day 5 Part One = {:?}", twisty(&input, |v| {
+            if v < 3 {
+                v + 1
+            } else {
+                v - 1
+            }
+        }));
+    }
 }
